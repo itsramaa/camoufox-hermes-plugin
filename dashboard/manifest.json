@@ -1,0 +1,13 @@
+{
+  "name": "camoufox",
+  "label": "Camoufox",
+  "description": "Anti-detect browser instances (Camoufox) — grid screencast, proxy, profiles, force-close.",
+  "icon": "Globe",
+  "version": "0.1.0",
+  "tab": {
+    "path": "/camoufox",
+    "position": "after:skills"
+  },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

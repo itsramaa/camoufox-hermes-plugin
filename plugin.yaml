@@ -1,0 +1,15 @@
+name: camoufox
+version: 0.1.0
+description: "Anti-detect browser automation (Camoufox/Playwright): guest + persistent profiles, proxy, live SSE screencast, Hermes dashboard grid."
+author: "Hermes"
+pip_dependencies:
+  - camoufox
+  - playwright
+  - psutil
+provides_tools:
+  - camoufox_navigate
+  - camoufox_action
+  - camoufox_extract
+  - camoufox_close
+provides_dashboard: true
+# Dashboard UI lives in dashboard/ (manifest.json + plugin_api.py + dist/index.js)
