@@ -1,7 +1,7 @@
 /**
  * Camoufox Dashboard Plugin
  * Grid of live browser instances (SSE screencast), create/kill controls,
- * zoom modal at high FPS. Plain IIFE using the Hermes Plugin SDK globals.
+ * zoom modal, and declarative Scenarios manager.
  */
 (function () {
   "use strict";
@@ -47,7 +47,7 @@
           setUrl(data.url || null);
           setTitle(data.title || null);
           setStatus(data.status || "starting");
-        } catch (e) { /* ignore malformed frame */ }
+        } catch (e) { /* ignore */ }
       };
       const onStatus = function (ev) {
         try {
@@ -57,7 +57,7 @@
       };
       es.addEventListener("frame", onFrame);
       es.addEventListener("status", onStatus);
-      es.onerror = function () { /* EventSource auto-reconnects; keep tiles stable */ };
+      es.onerror = function () { /* auto-reconnect */ };
       return function () { es.close(); };
     }, [instanceId, fps]);
 
@@ -85,7 +85,7 @@
     );
   }
 
-  function ZoomModal({ instance, onClose }) {
+  function ZoomModal({ instance, onClose, onKill }) {
     useEffect(function () {
       const onKey = function (e) { if (e.key === "Escape") onClose(); };
       document.addEventListener("keydown", onKey);
@@ -96,7 +96,7 @@
     },
       React.createElement("div", { className: "w-[min(1200px,95vw)]" },
         React.createElement("div", { className: "flex items-center justify-between border-b border-border px-3 py-2" },
-          React.createElement("span", { className: "text-sm font-courier" }, instance.id),
+          React.createElement("span", { className: "text-sm font-courier text-white" }, instance.id),
           React.createElement(Button, { onClick: onClose, className: "text-sm" }, "Close (Esc)"),
         ),
         React.createElement("div", { className: "aspect-video w-full bg-black" },
@@ -104,7 +104,7 @@
             instanceId: instance.id,
             fps: ZOOM_FPS,
             showControls: true,
-            onKill: function () { kill(instance.id); onClose(); },
+            onKill: function () { onKill(instance.id); onClose(); },
             onZoom: onClose,
           }),
         ),
@@ -112,7 +112,132 @@
     );
   }
 
+  // ── Scenarios View Component ──
+  function ScenariosSection() {
+    const [scenarios, setScenarios] = useState([]);
+    const [runningId, setRunningId] = useState(null);
+    const [runResult, setRunResult] = useState(null);
+    const [runError, setRunError] = useState(null);
+
+    function loadScenarios() {
+      fetchAPI("/api/plugins/camoufox/scenarios").then(function (res) {
+        if (!res.__error && res.scenarios) {
+          setScenarios(res.scenarios);
+        }
+      });
+    }
+
+    useEffect(function () {
+      loadScenarios();
+    }, []);
+
+    function runScenario(id) {
+      setRunningId(id);
+      setRunResult(null);
+      setRunError(null);
+      fetchAPI("/api/plugins/camoufox/scenarios/" + id + "/run", {
+        method: "POST",
+        body: JSON.stringify({ mode: "guest", headless: true }),
+      }).then(function (res) {
+        if (res.__error || res.detail) {
+          setRunError(res.__error || res.detail);
+        } else if (res.run) {
+          setRunResult(res.run);
+        }
+      }).catch(function (err) {
+        setRunError(String(err));
+      }).finally(function () {
+        setRunningId(null);
+      });
+    }
+
+    function resumeRun(runId) {
+      fetchAPI("/api/plugins/camoufox/scenarios/runs/" + runId + "/resume", { method: "POST" })
+        .then(function () {
+          setRunResult(function (prev) {
+            return prev ? { ...prev, status: "resumed" } : prev;
+          });
+        });
+    }
+
+    return React.createElement("div", { className: "flex flex-col gap-4" },
+      React.createElement(Card, null,
+        React.createElement(CardHeader, null,
+          React.createElement("div", { className: "flex items-center justify-between" },
+            React.createElement("div", { className: "flex items-center gap-2" },
+              React.createElement(CardTitle, { className: "text-lg" }, "Declarative Scenarios"),
+              React.createElement(Badge, { variant: "outline" }, scenarios.length + " saved"),
+            ),
+            React.createElement(Button, { onClick: loadScenarios, className: "text-xs h-7" }, "Refresh"),
+          ),
+        ),
+        React.createElement(CardContent, { className: "flex flex-col gap-3" },
+          scenarios.length === 0
+            ? React.createElement("div", { className: "py-6 text-center text-sm text-muted-foreground" },
+                "No saved scenarios yet. Add YAML scenarios to data/plugins/camoufox/scenarios/.")
+            : React.createElement("div", { className: "flex flex-col gap-2" },
+                scenarios.map(function (scn) {
+                  const isThisRunning = runningId === scn.id;
+                  return React.createElement("div", {
+                    key: scn.id,
+                    className: "flex items-center justify-between p-3 border border-border rounded bg-muted/20 hover:bg-muted/30",
+                  },
+                    React.createElement("div", { className: "flex flex-col gap-1" },
+                      React.createElement("div", { className: "flex items-center gap-2" },
+                        React.createElement("span", { className: "font-semibold text-sm" }, scn.name || scn.id),
+                        React.createElement(Badge, { variant: "secondary", className: "text-[10px]" }, scn.id),
+                        React.createElement(Badge, { variant: "outline", className: "text-[10px]" }, scn.steps_count + " steps"),
+                      ),
+                      scn.description ? React.createElement("span", { className: "text-xs text-muted-foreground" }, scn.description) : null,
+                    ),
+                    React.createElement(Button, {
+                      disabled: runningId !== null,
+                      onClick: function () { runScenario(scn.id); },
+                      className: "text-xs h-8 px-3",
+                    }, isThisRunning ? "Running..." : "▶ Run"),
+                  );
+                }),
+              ),
+        ),
+      ),
+
+      (runResult || runError) ? React.createElement(Card, null,
+        React.createElement(CardHeader, null,
+          React.createElement("div", { className: "flex items-center justify-between" },
+            React.createElement(CardTitle, { className: "text-base" }, "Scenario Execution Outcome"),
+            runResult ? React.createElement(Badge, {
+              className: runResult.status === "completed" ? "bg-green-600 text-white" : "bg-red-600 text-white",
+            }, runResult.status) : null,
+          ),
+        ),
+        React.createElement(CardContent, { className: "flex flex-col gap-2 text-xs font-courier" },
+          runError ? React.createElement("div", { className: "p-2 bg-red-950/40 text-red-300 border border-red-800 rounded" },
+            runError) : null,
+          runResult ? React.createElement("div", { className: "flex flex-col gap-2" },
+            runResult.status === "paused" ? React.createElement("div", { className: "flex items-center justify-between p-2 bg-amber-950/40 border border-amber-800 rounded" },
+              React.createElement("span", { className: "text-amber-300" }, runResult.pause_prompt || "Paused for interaction"),
+              React.createElement(Button, { onClick: function () { resumeRun(runResult.run_id); }, className: "h-6 text-xs px-2" }, "Resume"),
+            ) : null,
+            React.createElement("div", { className: "font-semibold text-foreground pt-1" }, "Output Variables:"),
+            React.createElement("pre", { className: "p-2 bg-muted/40 rounded overflow-auto text-[11px]" },
+              JSON.stringify(runResult.vars, null, 2)),
+            runResult.logs && runResult.logs.length > 0 ? React.createElement("div", { className: "font-semibold text-foreground pt-1" }, "Step Logs:") : null,
+            runResult.logs && runResult.logs.length > 0 ? React.createElement("div", { className: "flex flex-col gap-1 max-h-60 overflow-auto" },
+              runResult.logs.map(function (log, idx) {
+                return React.createElement("div", { key: idx, className: "flex items-center justify-between p-1 bg-muted/20 border border-border/50 text-[10px]" },
+                  React.createElement("span", null, log.step_name + " (" + log.action + ")"),
+                  React.createElement(Badge, { variant: log.status === "success" ? "outline" : "destructive", className: "text-[9px]" }, log.status),
+                );
+              }),
+            ) : null,
+          ) : null,
+        ),
+      ) : null,
+    );
+  }
+
   function CamoufoxPage() {
+    const [activeTab, setActiveTab] = useState("browsers");
     const [instances, setInstances] = useState([]);
     const [stats, setStats] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -158,76 +283,92 @@
     }, [zoomId, instances]);
 
     return React.createElement("div", { className: "flex flex-col gap-4" },
-      React.createElement(Card, null,
-        React.createElement(CardHeader, null,
-          React.createElement("div", { className: "flex items-center gap-3" },
-            React.createElement(CardTitle, { className: "text-lg" }, "Camoufox Browsers"),
-            stats ? React.createElement(Badge, { variant: "outline" }, stats.running + " running") : null,
-          ),
-        ),
-        React.createElement(CardContent, { className: "flex flex-col gap-3" },
-          React.createElement("div", { className: "grid grid-cols-1 gap-2 sm:grid-cols-2" },
-            React.createElement(Input, { placeholder: "URL", value: form.url, onChange: function (e) { setForm({ ...form, url: e.target.value }); } }),
-            React.createElement(Select, {
-              value: form.mode,
-              onChange: function (e) { setForm({ ...form, mode: e.target.value }); },
-              className: "bg-background",
-            },
-              [
-                React.createElement("option", { key: "guest", value: "guest" }, "guest"),
-                React.createElement("option", { key: "persistent", value: "persistent" }, "persistent"),
-              ],
-            ),
-            form.mode === "persistent" ? React.createElement(Input, {
-              placeholder: "profile name",
-              value: form.profile,
-              onChange: function (e) { setForm({ ...form, profile: e.target.value }); },
-            }) : null,
-          ),
-          React.createElement("div", { className: "grid grid-cols-3 gap-2" },
-            React.createElement(Input, { placeholder: "proxy server", value: form.proxyServer, onChange: function (e) { setForm({ ...form, proxyServer: e.target.value }); } }),
-            React.createElement(Input, { placeholder: "proxy user", value: form.proxyUser, onChange: function (e) { setForm({ ...form, proxyUser: e.target.value }); } }),
-            React.createElement(Input, { placeholder: "proxy pass", value: form.proxyPass, onChange: function (e) { setForm({ ...form, proxyPass: e.target.value }); } }),
-          ),
-          React.createElement(Button, { onClick: create, disabled: busy, className: "w-full" },
-            busy ? "Launching..." : "+ Launch instance"),
-        ),
+      React.createElement("div", { className: "flex items-center gap-2 border-b border-border pb-2" },
+        React.createElement(Button, {
+          variant: activeTab === "browsers" ? "default" : "outline",
+          className: "text-xs h-8 px-4",
+          onClick: function () { setActiveTab("browsers"); },
+        }, "Live Browsers " + (stats ? "(" + stats.running + ")" : "")),
+        React.createElement(Button, {
+          variant: activeTab === "scenarios" ? "default" : "outline",
+          className: "text-xs h-8 px-4",
+          onClick: function () { setActiveTab("scenarios"); },
+        }, "Scenarios (Engine)"),
       ),
 
-      instances.length === 0
-        ? React.createElement("div", { className: "py-10 text-center text-sm text-muted-foreground" },
-            "No running instances. Launch one above.")
-        : React.createElement("div", { className: "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" },
-            instances.map(function (inst) {
-              return React.createElement("div", { key: inst.id, className: "border border-border" },
-                React.createElement("div", { className: "flex items-center justify-between px-2 py-1" },
-                  React.createElement("span", { className: "font-courier text-xs text-muted-foreground" },
-                    (inst.profile ? inst.profile + "/" : "") + inst.id + " · " + inst.mode),
-                  React.createElement(Button, {
-                    "data-variant": "destructive",
-                    className: "h-5 px-1 text-[10px] text-red-400",
-                    onClick: function (e) { e.stopPropagation(); kill(inst.id); },
-                  }, "Force close"),
-                ),
-                React.createElement("div", { className: "aspect-video w-full bg-black cursor-pointer",
-                    onClick: function () { setZoomId(inst.id); },
-                  },
-                  React.createElement(FrameTile, {
-                    instanceId: inst.id,
-                    fps: GRID_FPS,
-                    showControls: false,
-                    onKill: function (e) { if (e && e.stopPropagation) e.stopPropagation(); kill(inst.id); },
-                    onZoom: function () { setZoomId(inst.id); },
-                  }),
-                ),
-              );
-            }),
+      activeTab === "scenarios" ? React.createElement(ScenariosSection, null) : React.createElement(React.Fragment, null,
+        React.createElement(Card, null,
+          React.createElement(CardHeader, null,
+            React.createElement("div", { className: "flex items-center gap-3" },
+              React.createElement(CardTitle, { className: "text-lg" }, "Camoufox Browsers"),
+              stats ? React.createElement(Badge, { variant: "outline" }, stats.running + " running") : null,
+            ),
           ),
+          React.createElement(CardContent, { className: "flex flex-col gap-3" },
+            React.createElement("div", { className: "grid grid-cols-1 gap-2 sm:grid-cols-2" },
+              React.createElement(Input, { placeholder: "URL", value: form.url, onChange: function (e) { setForm({ ...form, url: e.target.value }); } }),
+              React.createElement(Select, {
+                value: form.mode,
+                onChange: function (e) { setForm({ ...form, mode: e.target.value }); },
+                className: "bg-background",
+              },
+                [
+                  React.createElement("option", { key: "guest", value: "guest" }, "guest"),
+                  React.createElement("option", { key: "persistent", value: "persistent" }, "persistent"),
+                ],
+              ),
+              form.mode === "persistent" ? React.createElement(Input, {
+                placeholder: "profile name",
+                value: form.profile,
+                onChange: function (e) { setForm({ ...form, profile: e.target.value }); },
+              }) : null,
+            ),
+            React.createElement("div", { className: "grid grid-cols-3 gap-2" },
+              React.createElement(Input, { placeholder: "proxy server", value: form.proxyServer, onChange: function (e) { setForm({ ...form, proxyServer: e.target.value }); } }),
+              React.createElement(Input, { placeholder: "proxy user", value: form.proxyUser, onChange: function (e) { setForm({ ...form, proxyUser: e.target.value }); } }),
+              React.createElement(Input, { placeholder: "proxy pass", value: form.proxyPass, onChange: function (e) { setForm({ ...form, proxyPass: e.target.value }); } }),
+            ),
+            React.createElement(Button, { onClick: create, disabled: busy, className: "w-full" },
+              busy ? "Launching..." : "+ Launch instance"),
+          ),
+        ),
 
-      zoomInstance ? React.createElement(ZoomModal, {
-        instance: zoomInstance,
-        onClose: function () { setZoomId(null); },
-      }) : null,
+        instances.length === 0
+          ? React.createElement("div", { className: "py-10 text-center text-sm text-muted-foreground" },
+              "No running instances. Launch one above.")
+          : React.createElement("div", { className: "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" },
+              instances.map(function (inst) {
+                return React.createElement("div", { key: inst.id, className: "border border-border" },
+                  React.createElement("div", { className: "flex items-center justify-between px-2 py-1" },
+                    React.createElement("span", { className: "font-courier text-xs text-muted-foreground" },
+                      (inst.profile ? inst.profile + "/" : "") + inst.id + " · " + inst.mode),
+                    React.createElement(Button, {
+                      "data-variant": "destructive",
+                      className: "h-5 px-1 text-[10px] text-red-400",
+                      onClick: function (e) { e.stopPropagation(); kill(inst.id); },
+                    }, "Force close"),
+                  ),
+                  React.createElement("div", { className: "aspect-video w-full bg-black cursor-pointer",
+                      onClick: function () { setZoomId(inst.id); },
+                    },
+                    React.createElement(FrameTile, {
+                      instanceId: inst.id,
+                      fps: GRID_FPS,
+                      showControls: false,
+                      onKill: function (e) { if (e && e.stopPropagation) e.stopPropagation(); kill(inst.id); },
+                      onZoom: function () { setZoomId(inst.id); },
+                    }),
+                  ),
+                );
+              }),
+            ),
+
+        zoomInstance ? React.createElement(ZoomModal, {
+          instance: zoomInstance,
+          onKill: kill,
+          onClose: function () { setZoomId(null); },
+        }) : null,
+      ),
     );
   }
 

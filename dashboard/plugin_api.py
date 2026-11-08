@@ -52,12 +52,16 @@ try:
     _scr_mod = importlib.import_module("core.screencaster")
     _exc_mod = importlib.import_module("core.exceptions")
     _mdl_mod = importlib.import_module("core.models")
+    _scn_store = importlib.import_module("core.scenario_storage")
+    _scn_eng = importlib.import_module("core.scenario_engine")
 except Exception:
     # Fallback: load by path under unique names (best effort).
     _reg_mod = None
     _scr_mod = None
     _exc_mod = None
     _mdl_mod = None
+    _scn_store = None
+    _scn_eng = None
 
 
 def _get(name: str, mod: Any, alt: str):
@@ -72,6 +76,14 @@ def REGISTRY():
 
 def sse_stream(*args: Any, **kwargs: Any):
     return _get("sse_stream", _scr_mod, "screencaster")(*args, **kwargs)
+
+
+def SCENARIO_STORAGE():
+    return _get("STORAGE", _scn_store, "scenario_storage")
+
+
+def SCENARIO_ENGINE():
+    return _get("ENGINE", _scn_eng, "scenario_engine")
 
 
 def _error_to_http(exc: Exception) -> HTTPException:
@@ -218,3 +230,120 @@ async def stream_instance(
         media_type="text/event-stream",
         headers=headers,
     )
+
+
+# -----------------------------------------------------------------------------
+# Scenario Endpoints
+# -----------------------------------------------------------------------------
+
+class RunScenarioBody(BaseModel):
+    variables: dict[str, Any] | None = None
+    instance_id: str | None = None
+    mode: str = Field(default="guest", pattern="^(guest|persistent)$")
+    profile: str | None = None
+    headless: bool | None = None
+
+
+class SaveScenarioBody(BaseModel):
+    scenario: dict[str, Any]
+
+
+@router.get("/scenarios")
+async def list_scenarios() -> dict[str, Any]:
+    try:
+        storage = SCENARIO_STORAGE()
+        storage.seed_defaults_if_empty()
+        return {"scenarios": storage.list()}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _error_to_http(exc)
+
+
+@router.get("/scenarios/{scenario_id}")
+async def get_scenario(scenario_id: str) -> dict[str, Any]:
+    try:
+        storage = SCENARIO_STORAGE()
+        scenario = storage.get(scenario_id)
+        return {"scenario": scenario.model_dump(by_alias=True)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _error_to_http(exc)
+
+
+@router.post("/scenarios")
+async def save_scenario(body: SaveScenarioBody) -> dict[str, Any]:
+    try:
+        storage = SCENARIO_STORAGE()
+        scenario = storage.save(body.scenario)
+        return {"ok": True, "scenario": scenario.model_dump(by_alias=True)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _error_to_http(exc)
+
+
+@router.delete("/scenarios/{scenario_id}")
+async def delete_scenario(scenario_id: str) -> dict[str, Any]:
+    try:
+        storage = SCENARIO_STORAGE()
+        deleted = storage.delete(scenario_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Scenario {scenario_id!r} not found.")
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _error_to_http(exc)
+
+
+@router.post("/scenarios/{scenario_id}/run")
+async def run_scenario(scenario_id: str, body: RunScenarioBody) -> dict[str, Any]:
+    try:
+        storage = SCENARIO_STORAGE()
+        engine = SCENARIO_ENGINE()
+        scenario = storage.get(scenario_id)
+
+        snapshot = await engine.execute(
+            scenario,
+            initial_vars=body.variables,
+            instance_id=body.instance_id,
+            mode=body.mode,
+            profile=body.profile,
+            headless=body.headless,
+        )
+        return {"run": snapshot.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _error_to_http(exc)
+
+
+@router.post("/scenarios/runs/{run_id}/resume")
+async def resume_scenario_run(run_id: str) -> dict[str, Any]:
+    try:
+        engine = SCENARIO_ENGINE()
+        ok = await engine.resume_run(run_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found or not in paused state.")
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _error_to_http(exc)
+
+
+@router.post("/scenarios/runs/{run_id}/abort")
+async def abort_scenario_run(run_id: str) -> dict[str, Any]:
+    try:
+        engine = SCENARIO_ENGINE()
+        ok = await engine.abort_run(run_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found.")
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _error_to_http(exc)
+

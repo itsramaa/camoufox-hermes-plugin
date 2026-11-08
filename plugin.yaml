@@ -11,5 +11,10 @@ provides_tools:
   - camoufox_action
   - camoufox_extract
   - camoufox_close
+  - camoufox_list_scenarios
+  - camoufox_inspect_scenario
+  - camoufox_run_scenario
+  - camoufox_save_scenario
+  - camoufox_delete_scenario
 provides_dashboard: true
 # Dashboard UI lives in dashboard/ (manifest.json + plugin_api.py + dist/index.js)

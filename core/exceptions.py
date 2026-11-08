@@ -43,3 +43,28 @@ class SystemDependencyMissingError(DependencyMissingError):
 
     status_code = 503
 
+
+class ScenarioError(CamoufoxPluginError):
+    """Base error for scenario engine operations."""
+
+    status_code = 500
+
+
+class ScenarioNotFoundError(ScenarioError):
+    """The requested scenario definition does not exist."""
+
+    status_code = 404
+
+
+class ScenarioValidationError(ScenarioError):
+    """Scenario schema or step validation failed."""
+
+    status_code = 400
+
+
+class ScenarioExecutionError(ScenarioError):
+    """A scenario failed during execution."""
+
+    status_code = 500
+
+

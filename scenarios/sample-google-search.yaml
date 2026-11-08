@@ -1,0 +1,75 @@
+id: sample-google-search
+name: 'Sample: Google Search & Extract'
+description: Navigates to Google, searches for a query, extracts results with if-check.
+variables:
+  query: Nous Research Hermes
+  max_results: 3
+settings:
+  mode: autonomous
+  default_timeout_ms: 15000
+  screenshot_on_failure: true
+  close_on_complete: true
+steps:
+- name: Navigate to Google
+  page: default
+  action: goto
+  url: https://www.google.com
+  on_error: abort
+  retries: 0
+  retry_delay_ms: 1000
+- name: Check Search Box
+  page: default
+  action: wait_for_selector
+  selector: textarea[name='q'], input[name='q']
+  timeout_ms: 10000
+  on_error: abort
+  retries: 0
+  retry_delay_ms: 1000
+- name: Type Query
+  page: default
+  action: fill
+  selector: textarea[name='q'], input[name='q']
+  value: '{{query}}'
+  on_error: abort
+  retries: 0
+  retry_delay_ms: 1000
+- name: Submit Search
+  page: default
+  action: press
+  selector: textarea[name='q'], input[name='q']
+  value: Enter
+  wait_for: domcontentloaded
+  on_error: abort
+  retries: 0
+  retry_delay_ms: 1000
+- name: Extract Search Results Title
+  page: default
+  action: extract_text
+  selector: title
+  save_to_var: page_title
+  on_error: abort
+  retries: 0
+  retry_delay_ms: 1000
+- page: default
+  on_error: abort
+  retries: 0
+  retry_delay_ms: 1000
+  if: '''Hermes'' in ctx.vars.get(''page_title'', '''')'
+  then:
+  - name: Log Success
+    page: default
+    action: set_var
+    value: found_matching_keyword
+    save_to_var: search_status
+    on_error: abort
+    retries: 0
+    retry_delay_ms: 1000
+  else:
+  - name: Log Fallback
+    page: default
+    action: set_var
+    value: keyword_not_in_title
+    save_to_var: search_status
+    on_error: abort
+    retries: 0
+    retry_delay_ms: 1000

@@ -1,0 +1,52 @@
+id: sample-multi-portal-pipeline
+name: "Sample: Multi-Tab Portal Data Pipeline"
+description: "Demonstrates advanced multi-tab navigation, data pipelining, if-else logic, and looping."
+variables:
+  portal_a_query: "Hermes Agent"
+  user_tag: "priority"
+  items:
+    - "item_1"
+    - "item_2"
+settings:
+  mode: "autonomous"
+  default_timeout_ms: 15000
+  screenshot_on_failure: true
+steps:
+  - name: "Open Tab 1: Source Portal"
+    page: "portal_a"
+    action: "goto"
+    url: "data:text/html,<html><body><h1 id='portal-title'>Portal A: Source</h1><div id='extracted-token'>TOKEN-XYZ-9981</div></body></html>"
+
+  - name: "Extract Token from Portal A"
+    page: "portal_a"
+    action: "extract_text"
+    selector: "#extracted-token"
+    save_to_var: "auth_token"
+
+  - if: "'TOKEN' in ctx.vars.get('auth_token', '')"
+    then:
+      - name: "Open Tab 2: Destination Portal"
+        page: "portal_b"
+        action: "goto"
+        url: "data:text/html,<html><body><h2>Portal B: Ingestion</h2><input id='token-input' type='text'/><div id='status'>ready</div></body></html>"
+
+      - name: "Fill Token in Portal B"
+        page: "portal_b"
+        action: "fill"
+        selector: "#token-input"
+        value: "{{auth_token}}"
+
+      - name: "Loop over items"
+        loop:
+          over: "ctx.vars['items']"
+          as: "current_item"
+          steps:
+            - name: "Record Item Processing"
+              action: "set_var"
+              save_to_var: "last_processed"
+              value: "{{current_item}}"
+    else:
+      - name: "Log Error State"
+        action: "set_var"
+        save_to_var: "error_state"
+        value: "token_missing"

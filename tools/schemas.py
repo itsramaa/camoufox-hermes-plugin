@@ -78,3 +78,85 @@ CAMOUFOX_CLOSE_SCHEMA = {
         "additionalProperties": False,
     },
 }
+
+CAMOUFOX_LIST_SCENARIOS_SCHEMA = {
+    "description": "List all saved declarative browser scenarios available in Camoufox.",
+    "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    },
+}
+
+CAMOUFOX_INSPECT_SCENARIO_SCHEMA = {
+    "description": "Get detailed step definition, variables, and logic of a scenario.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "scenario_id": {"type": "string", "description": "Scenario ID to inspect."},
+        },
+        "required": ["scenario_id"],
+        "additionalProperties": False,
+    },
+}
+
+CAMOUFOX_RUN_SCENARIO_SCHEMA = {
+    "description": "Execute a declarative browser scenario with parameters (supporting if/else, loops, multi-tab, and file upload).",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "scenario_id": {"type": "string", "description": "The scenario ID to run."},
+            "variables": {
+                "type": "object",
+                "description": "Dynamic variable overrides for the scenario run (key-value pairs).",
+            },
+            "instance_id": {
+                "type": "string",
+                "description": "Optional existing instance ID to run on. If omitted, launches an isolated instance.",
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["guest", "persistent"],
+                "default": "guest",
+                "description": "Browser session mode if launching a new instance.",
+            },
+            "profile": {
+                "type": "string",
+                "description": "Profile name (if mode is persistent).",
+            },
+            "headless": {
+                "type": "boolean",
+                "description": "Headless browser flag (defaults to plugin setting).",
+            },
+        },
+        "required": ["scenario_id"],
+        "additionalProperties": False,
+    },
+}
+
+CAMOUFOX_SAVE_SCENARIO_SCHEMA = {
+    "description": "Save or update a declarative browser scenario (in YAML or JSON format).",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "scenario": {
+                "type": "object",
+                "description": "Full scenario specification object containing id, name, description, variables, settings, and steps.",
+            },
+        },
+        "required": ["scenario"],
+        "additionalProperties": False,
+    },
+}
+
+CAMOUFOX_DELETE_SCENARIO_SCHEMA = {
+    "description": "Delete a scenario from storage.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "scenario_id": {"type": "string", "description": "Scenario ID to delete."},
+        },
+        "required": ["scenario_id"],
+        "additionalProperties": False,
+    },
+}

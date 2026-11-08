@@ -5,17 +5,52 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from tools.registry import tool_error, tool_result
+try:
+    from tools.registry import tool_error, tool_result
+except ImportError:
+    import json
+    def tool_result(data: Any) -> str:
+        return json.dumps({"ok": True, "data": data})
+    def tool_error(msg: str, status: int = 500) -> str:
+        return json.dumps({"ok": False, "error": msg, "status": status})
 
-from ..core.exceptions import CamoufoxPluginError, ProfileLockedError
-from ..core.instance_registry import REGISTRY
-from ..core.models import LaunchRequest, ProxySpec
-from .schemas import (
-    CAMOUFOX_ACTION_SCHEMA,
-    CAMOUFOX_CLOSE_SCHEMA,
-    CAMOUFOX_EXTRACT_SCHEMA,
-    CAMOUFOX_NAVIGATE_SCHEMA,
-)
+try:
+    from ..core.exceptions import CamoufoxPluginError, ProfileLockedError, ScenarioError
+    from ..core.instance_registry import REGISTRY
+    from ..core.models import LaunchRequest, ProxySpec
+    from ..core.scenario_engine import ENGINE
+    from ..core.scenario_storage import STORAGE
+except (ImportError, ValueError):
+    from core.exceptions import CamoufoxPluginError, ProfileLockedError, ScenarioError
+    from core.instance_registry import REGISTRY
+    from core.models import LaunchRequest, ProxySpec
+    from core.scenario_engine import ENGINE
+    from core.scenario_storage import STORAGE
+
+try:
+    from .schemas import (
+        CAMOUFOX_ACTION_SCHEMA,
+        CAMOUFOX_CLOSE_SCHEMA,
+        CAMOUFOX_DELETE_SCENARIO_SCHEMA,
+        CAMOUFOX_EXTRACT_SCHEMA,
+        CAMOUFOX_INSPECT_SCENARIO_SCHEMA,
+        CAMOUFOX_LIST_SCENARIOS_SCHEMA,
+        CAMOUFOX_NAVIGATE_SCHEMA,
+        CAMOUFOX_RUN_SCENARIO_SCHEMA,
+        CAMOUFOX_SAVE_SCENARIO_SCHEMA,
+    )
+except (ImportError, ValueError):
+    from tools.schemas import (
+        CAMOUFOX_ACTION_SCHEMA,
+        CAMOUFOX_CLOSE_SCHEMA,
+        CAMOUFOX_DELETE_SCENARIO_SCHEMA,
+        CAMOUFOX_EXTRACT_SCHEMA,
+        CAMOUFOX_INSPECT_SCENARIO_SCHEMA,
+        CAMOUFOX_LIST_SCENARIOS_SCHEMA,
+        CAMOUFOX_NAVIGATE_SCHEMA,
+        CAMOUFOX_RUN_SCENARIO_SCHEMA,
+        CAMOUFOX_SAVE_SCENARIO_SCHEMA,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +228,85 @@ async def handle_camoufox_close(args: dict, **kwargs: Any) -> str:
     return tool_result({"instance_id": instance_id, "closed": True})
 
 
+async def handle_camoufox_list_scenarios(args: dict, **kwargs: Any) -> str:
+    """List all available scenarios."""
+    del args, kwargs
+    try:
+        STORAGE.seed_defaults_if_empty()
+        items = STORAGE.list()
+        return tool_result({"scenarios": items, "count": len(items)})
+    except Exception as exc:
+        return tool_error(f"Failed listing scenarios: {exc}")
+
+
+async def handle_camoufox_inspect_scenario(args: dict, **kwargs: Any) -> str:
+    """Inspect scenario details."""
+    del kwargs
+    scenario_id = args.get("scenario_id")
+    if not scenario_id:
+        return tool_error("scenario_id is required")
+    try:
+        scenario = STORAGE.get(scenario_id)
+        return tool_result(scenario.model_dump(by_alias=True))
+    except ScenarioError as exc:
+        return tool_error(str(exc), status=exc.status_code)
+    except Exception as exc:
+        return tool_error(f"Failed inspecting scenario: {exc}")
+
+
+async def handle_camoufox_run_scenario(args: dict, **kwargs: Any) -> str:
+    """Execute a scenario with dynamic variables."""
+    del kwargs
+    scenario_id = args.get("scenario_id")
+    if not scenario_id:
+        return tool_error("scenario_id is required")
+    try:
+        scenario = STORAGE.get(scenario_id)
+        snapshot = await ENGINE.execute(
+            scenario,
+            initial_vars=args.get("variables"),
+            instance_id=args.get("instance_id"),
+            mode=args.get("mode", "guest"),
+            profile=args.get("profile"),
+            headless=args.get("headless"),
+        )
+        return tool_result(snapshot.to_dict())
+    except ScenarioError as exc:
+        return tool_error(str(exc), status=exc.status_code)
+    except Exception as exc:
+        return tool_error(f"Failed executing scenario {scenario_id!r}: {exc}")
+
+
+async def handle_camoufox_save_scenario(args: dict, **kwargs: Any) -> str:
+    """Save or update a scenario."""
+    del kwargs
+    raw_scenario = args.get("scenario")
+    if not isinstance(raw_scenario, dict):
+        return tool_error("'scenario' must be an object")
+    try:
+        saved = STORAGE.save(raw_scenario)
+        return tool_result({"ok": True, "scenario": saved.model_dump(by_alias=True)})
+    except ScenarioError as exc:
+        return tool_error(str(exc), status=exc.status_code)
+    except Exception as exc:
+        return tool_error(f"Failed saving scenario: {exc}")
+
+
+async def handle_camoufox_delete_scenario(args: dict, **kwargs: Any) -> str:
+    """Delete a scenario by ID."""
+    del kwargs
+    scenario_id = args.get("scenario_id")
+    if not scenario_id:
+        return tool_error("scenario_id is required")
+    try:
+        deleted = STORAGE.delete(scenario_id)
+        if not deleted:
+            return tool_error(f"Scenario {scenario_id!r} not found", status=404)
+        return tool_result({"ok": True, "deleted": scenario_id})
+    except Exception as exc:
+        return tool_error(f"Failed deleting scenario: {exc}")
+
+
 __all__ = ["register_tools"]
 
 _TOOLS = [
@@ -219,6 +333,36 @@ _TOOLS = [
         CAMOUFOX_CLOSE_SCHEMA,
         handle_camoufox_close,
         "Close a Camoufox instance and release its resources.",
+    ),
+    (
+        "camoufox_list_scenarios",
+        CAMOUFOX_LIST_SCENARIOS_SCHEMA,
+        handle_camoufox_list_scenarios,
+        "List all saved declarative browser scenarios in Camoufox.",
+    ),
+    (
+        "camoufox_inspect_scenario",
+        CAMOUFOX_INSPECT_SCENARIO_SCHEMA,
+        handle_camoufox_inspect_scenario,
+        "Inspect definition, steps, and variables of a scenario.",
+    ),
+    (
+        "camoufox_run_scenario",
+        CAMOUFOX_RUN_SCENARIO_SCHEMA,
+        handle_camoufox_run_scenario,
+        "Execute a declarative scenario with control flow (if/else, loops, multi-tab).",
+    ),
+    (
+        "camoufox_save_scenario",
+        CAMOUFOX_SAVE_SCENARIO_SCHEMA,
+        handle_camoufox_save_scenario,
+        "Save or update a declarative browser scenario definition.",
+    ),
+    (
+        "camoufox_delete_scenario",
+        CAMOUFOX_DELETE_SCENARIO_SCHEMA,
+        handle_camoufox_delete_scenario,
+        "Delete a scenario from storage.",
     ),
 ]
 
