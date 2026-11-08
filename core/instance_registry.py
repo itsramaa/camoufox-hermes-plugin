@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import uuid
 from pathlib import Path
@@ -188,9 +189,25 @@ class InstanceRegistry:
         self._reaper_task: asyncio.Task[None] | None = None
 
     def _profiles_dir(self) -> Path:
-        # Anchor on this file's package so both package and top-level import agree.
-        base = Path(__file__).resolve().parent.parent
-        return base / self._settings.profile_root
+        # Anchor profile data to HERMES_HOME (Docker + per-profile gateways).
+        hermes_home = os.environ.get("HERMES_HOME", "").strip()
+        if hermes_home:
+            base_home = Path(hermes_home).expanduser()
+        else:
+            base_home = Path.home() / ".hermes"
+
+        configured = (self._settings.profile_root or "").strip()
+        if configured:
+            root = Path(configured).expanduser()
+            if not root.is_absolute():
+                root = base_home / root
+        else:
+            root = base_home / "camoufox" / "profiles"
+
+        hermes_profile = os.environ.get("HERMES_PROFILE") or os.environ.get("HERMES_PROFILE_ID")
+        if hermes_profile and hermes_profile != "default":
+            return root / hermes_profile
+        return root
 
     def _profile_lock(self, profile: str) -> asyncio.Lock:
         return self._profile_locks.setdefault(profile, asyncio.Lock())

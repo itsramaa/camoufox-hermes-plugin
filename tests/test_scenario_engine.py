@@ -53,15 +53,21 @@ class TestScenarioEngine(unittest.TestCase):
             steps=[],
         )
         ctx = ExecutionContext(scenario=scenario, instance=None, run_id="run-1", initial_vars={"user": "bob"})
-        interpolated = ctx.interpolate("https://{{domain}}:{{port}}/login?user={{user}}")
-        self.assertEqual(interpolated, "https://example.com:8080/login?user=bob")
+        try:
+            interpolated = ctx.interpolate("https://{{domain}}:{{port}}/login?user={{user}}")
+            self.assertEqual(interpolated, "https://example.com:8080/login?user=bob")
+        finally:
+            ctx.cleanup()
 
     def test_expression_evaluation(self):
         scenario = ScenarioDefinition(id="expr-test", name="Expr Test", variables={"code": "123456"}, steps=[])
         ctx = ExecutionContext(scenario=scenario, instance=None, run_id="run-2")
-        self.assertTrue(ctx.evaluate_expression("len(ctx.vars['code']) == 6"))
-        self.assertFalse(ctx.evaluate_expression("len(ctx.vars['code']) == 4"))
-        self.assertEqual(ctx.evaluate_expression("int(ctx.vars['code']) + 1"), 123457)
+        try:
+            self.assertTrue(ctx.evaluate_expression("len(ctx.vars['code']) == 6"))
+            self.assertFalse(ctx.evaluate_expression("len(ctx.vars['code']) == 4"))
+            self.assertEqual(ctx.evaluate_expression("int(ctx.vars['code']) + 1"), 123457)
+        finally:
+            ctx.cleanup()
 
     def test_conditional_branching_execution(self):
         async def run_test():
@@ -146,6 +152,12 @@ class TestScenarioEngine(unittest.TestCase):
 
     def test_real_browser_complex_scenario(self):
         """End-to-end integration test with real Camoufox browser."""
+        try:
+            import camoufox  # noqa: F401
+            from camoufox.async_api import AsyncCamoufox  # noqa: F401
+        except ImportError:
+            self.skipTest("camoufox is not installed in the environment")
+
         async def run_e2e():
             scenario = ScenarioDefinition(
                 id="e2e-scenario",

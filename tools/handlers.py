@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 try:
@@ -100,17 +101,22 @@ async def handle_camoufox_navigate(args: dict, **kwargs: Any) -> str:
     del kwargs
     try:
         proxy = _proxy_from_args(args)
+        mode = args.get("mode", "guest")
+        profile = args.get("profile")
+        if mode == "persistent" and not profile:
+            profile = os.environ.get("HERMES_PROFILE") or os.environ.get("HERMES_PROFILE_ID") or "default"
+
         logger.debug(
             "camoufox: navigate mode=%s profile=%s url=%s proxy=%s",
-            args.get("mode", "guest"),
-            args.get("profile"),
+            mode,
+            profile,
             args.get("url"),
             _safe_proxy_log(proxy),
         )
         request = LaunchRequest.from_dict(
             {
-                "mode": args.get("mode", "guest"),
-                "profile": args.get("profile"),
+                "mode": mode,
+                "profile": profile,
                 "url": args.get("url"),
                 "proxy": proxy,
                 "headless": args.get("headless"),
@@ -262,12 +268,17 @@ async def handle_camoufox_run_scenario(args: dict, **kwargs: Any) -> str:
         return tool_error("scenario_id is required")
     try:
         scenario = STORAGE.get(scenario_id)
+        mode = args.get("mode", "guest")
+        profile = args.get("profile")
+        if mode == "persistent" and not profile:
+            profile = os.environ.get("HERMES_PROFILE") or os.environ.get("HERMES_PROFILE_ID") or "default"
+
         snapshot = await ENGINE.execute(
             scenario,
             initial_vars=args.get("variables"),
             instance_id=args.get("instance_id"),
-            mode=args.get("mode", "guest"),
-            profile=args.get("profile"),
+            mode=mode,
+            profile=profile,
             headless=args.get("headless"),
         )
         return tool_result(snapshot.to_dict())

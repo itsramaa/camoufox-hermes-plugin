@@ -23,7 +23,7 @@ class Settings:
     default_headless: bool = True
     launch_timeout_seconds: float = 60.0
     reaper_interval_seconds: float = 30.0
-    profile_root: str = "profiles"
+    profile_root: str = ""  # empty => resolved from HERMES_HOME at runtime
 
     @classmethod
     def from_config(cls, ctx: Any, root_hint: str | None = None) -> "Settings":
