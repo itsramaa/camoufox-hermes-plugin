@@ -36,3 +36,10 @@ class DependencyMissingError(CamoufoxPluginError):
     """camoufox/playwright (or their runtime) is not installed."""
 
     status_code = 503
+
+
+class SystemDependencyMissingError(DependencyMissingError):
+    """OS-level system libraries for Firefox/Camoufox (e.g. libgtk-3) are missing."""
+
+    status_code = 503
+

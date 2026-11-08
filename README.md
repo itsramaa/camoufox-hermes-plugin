@@ -74,12 +74,24 @@ Windows host with a Linux-staged venv (Python 3.14.9): no Xvfb assumption.
 `False`; `"virtual"` (Xvfb) is **Linux-only** and is rejected on Windows
 (Camoufox raises `VirtualDisplayNotSupported`).
 
-## Dependencies
+## Dependencies & System Requirements
 
-`camoufox`, `playwright`, `psutil` are declared in `plugin.yaml`
-`pip_dependencies`; Hermes PM installs them. **Not** installed by this
-plugin, and a missing runtime raises `DependencyMissingError` (HTTP 503) at
-launch, not at import.
+- **Python packages:** `camoufox`, `playwright`, `psutil` are declared in
+  `plugin.yaml` `pip_dependencies` and installed automatically by Hermes PM.
+- **OS system libraries (Linux/Docker):** Camoufox runs Firefox, which requires
+  GTK3, Cairo, DBus, and font libraries.
+  The plugin performs an automated preflight check on launch:
+  1. It checks whether critical shared libraries (`libgtk-3.so.0`, etc.) exist.
+  2. If missing, it attempts automatic installation (`playwright install-deps firefox`).
+  3. If automatic installation cannot proceed (insufficient privileges), it raises
+     `SystemDependencyMissingError` with exact manual installation commands:
+     ```bash
+     # In Docker (root):
+     docker exec -u 0:0 <container> python3 -m playwright install-deps firefox
+     # On Debian/Ubuntu:
+     sudo apt-get update && sudo apt-get install -y libgtk-3-0 libdbus-glib-1-2 libxtst6 xvfb
+     ```
+  A helper script is also provided at `scripts/install-deps.sh`.
 
 ## Validation status
 

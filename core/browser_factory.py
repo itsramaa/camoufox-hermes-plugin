@@ -10,9 +10,10 @@ import os
 from pathlib import Path
 
 from .config import Settings
-from .exceptions import DependencyMissingError
+from .exceptions import DependencyMissingError, SystemDependencyMissingError
 from .models import InstanceStatus, ProxySpec
 from .proxy import build_proxy
+from .system_deps import ensure_system_dependencies
 
 SCREEN_CONFIG: dict[str, int] = {
     "screen.width": 1366,
@@ -41,6 +42,8 @@ def _import_camoufox() -> None:
             "camoufox is not installed in this environment; "
             "add it to the plugin pip_dependencies (Hermes PM installs it)."
         ) from exc
+
+    ensure_system_dependencies()
 
 
 def build_launch_kwargs(
@@ -114,9 +117,15 @@ async def launch_browser(
         user_data_dir=user_data_dir,
     )
     manager = AsyncCamoufox(**kwargs)
-    browser = await asyncio.wait_for(
-        manager.__aenter__(), timeout=settings.launch_timeout_seconds
-    )
+    try:
+        browser = await asyncio.wait_for(
+            manager.__aenter__(), timeout=settings.launch_timeout_seconds
+        )
+    except Exception as exc:
+        err_msg = str(exc)
+        if any(marker in err_msg for marker in ("XPCOMGlueLoad", "cannot open shared object file", "libgtk", "libmozgtk")):
+            ensure_system_dependencies()
+        raise
     # Guest isolation comes from the ephemeral non-persistent context; no temp
     # profile dir is created or returned.
     return manager, browser, None
